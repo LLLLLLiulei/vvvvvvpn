@@ -3,14 +3,17 @@ package main
 import (
 	"bytes"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +27,7 @@ var embededFiles embed.FS
 //go:embed static/*
 var staticFiles embed.FS
 
+var api = ""
 var vpnname = "vvvvvvpn"
 var httpClient = http.DefaultClient
 
@@ -37,8 +41,16 @@ type VPNInfo struct {
 func fetchVpnInfo() VPNInfo {
 	fmt.Println("get vpn account")
 
-	resp, _ := httpClient.Get("http://xxxx")
+	mac := Base64Encoding(NewRandomMac())
+	fmt.Println("mac:" + mac)
+	url := api + mac
+
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "eVPN/1.0 (Mac OS X Version 10.16 (Build 21F79))")
+
+	resp, _ := httpClient.Do(req)
 	bytes, _ := ioutil.ReadAll(resp.Body)
+
 	defer func() {
 		resp.Body.Close()
 	}()
@@ -46,8 +58,21 @@ func fetchVpnInfo() VPNInfo {
 	var vpnInfo VPNInfo
 	json.Unmarshal(bytes, &vpnInfo)
 
-	fmt.Println(vpnInfo)
+	fmt.Println(&vpnInfo)
 	return vpnInfo
+}
+
+func NewRandomMac() string {
+	var m [6]byte
+
+	rand.Seed(time.Now().UnixNano())
+	for i := 0; i < 6; i++ {
+		mac_byte := rand.Intn(256)
+		m[i] = byte(mac_byte)
+		rand.Seed(int64(mac_byte))
+	}
+
+	return fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", m[0], m[1], m[2], m[3], m[4], m[5])
 }
 
 func getHelperPath() string {
@@ -91,7 +116,7 @@ func sleep(second int) {
 	time.Sleep(time.Duration(second) * time.Second)
 }
 
-func createGin() {
+func createGin(port int) {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
@@ -127,8 +152,7 @@ func createGin() {
 		staticServer.ServeHTTP(c.Writer, c.Request)
 	})
 
-	// r.Run()
-	r.Run(":8866")
+	r.Run(":" + strconv.Itoa(port))
 }
 
 func Do() {
@@ -145,8 +169,7 @@ func Do() {
 	go func() {
 		defer wg.Done()
 		helperpath = getHelperPath()
-		cmd := exec.Command("chmod", "+x", helperpath)
-		cmd.Start()
+		exec.Command("chmod", "+x", helperpath).Run()
 	}()
 
 	wg.Wait()
@@ -171,9 +194,22 @@ func Do() {
 	fmt.Println("Success!")
 }
 
+func Base64Encoding(str string) string { //Base64编码
+	src := []byte(str)
+	res := base64.StdEncoding.EncodeToString(src) //将编码变成字符串
+	return res
+}
+
+func Base64Decoding(str string) string { //Base64解码
+	res, _ := base64.StdEncoding.DecodeString(str)
+	return string(res)
+}
+
 func main() {
 	// Do()
 	// Test()
-	createGin()
+
+	go exec.Command("open", "http://localhost:8866").Run()
+	createGin(8866)
 
 }
